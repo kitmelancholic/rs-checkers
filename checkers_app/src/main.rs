@@ -1,3 +1,6 @@
+slint::include_modules!();
+
 fn main() {
-    println!("Hello, world!");
+    let app = App::new().expect("create Slint app");
+    app.run().expect("run Slint app");
 }
