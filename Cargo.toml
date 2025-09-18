@@ -1,0 +1,16 @@
+[workspace]
+members = ["checkers_core", "checkers_app"]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+license = "GPL-3.0"
+authors = ["Oleksii Kostyk"]
+repository = "https://github.com/kitmelancholic/rs-checkers"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = "warn"
+pedantic = "allow"
