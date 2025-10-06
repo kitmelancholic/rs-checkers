@@ -5,7 +5,9 @@ edition = "2024"
 
 [dependencies]
 checkers_core = { path = "../checkers_core" }
-slint = "1.12.1"
 
-[build-dependencies]
-slint-build = "1.12.1"
+eframe = { workspace = true }
+egui = { workspace = true }
+egui_dnd = { workspace = true }
+egui_extras = { workspace = true, features = ["all_loaders"] }
+image = { workspace = true }

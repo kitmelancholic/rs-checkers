@@ -14,3 +14,10 @@ unsafe_code = "forbid"
 [workspace.lints.clippy]
 all = "warn"
 pedantic = "allow"
+
+[workspace.dependencies]
+eframe = "0.32.3"
+egui = "0.32.3"
+egui_dnd = "0.13.0"
+egui_extras = "0.32.3"
+image = "0.25.8"
