@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+async-std = { version = "1.13.2", features = ["default"] }
 checkers_core = { path = "../checkers_core" }
 
-iced = "0.13.1"
+iced = { version = "0.13.1", features = ["canvas"] }
+tokio = { version = "1.47.1", features = ["time"] }

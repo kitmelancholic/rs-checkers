@@ -1,50 +1,230 @@
+use checkers_core::prelude::*;
 use iced::{
-    Color, Element, Length,
-    widget::{column, container, row, text},
+    Color, Element, Length, Point, Rectangle, Size, Task, event, mouse,
+    widget::{
+        Canvas,
+        canvas::{self, Frame, Geometry, Path, Stroke, Text},
+        column, container, text,
+    },
 };
 
 pub fn main() -> iced::Result {
     iced::run("Checkers - rs-checkers", update, view)
 }
 
-fn update(state: &mut CheckersUI, message: Message) {
-    state.update(message);
+fn update(state: &mut CheckersUI, message: Message) -> Task<Message> {
+    state.update(message)
 }
 
 fn view(state: &CheckersUI) -> Element<'_, Message> {
     state.view()
 }
 
-#[derive(Default, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct CheckersUI {
-    selected_piece: Option<(usize, usize)>, // Track the selected piece (row, col)
-    available_moves: Vec<(usize, usize)>,   // Highlight available moves
+    game: GameManager,
+    selected_piece: Option<Position>, // Track the selected piece
+    available_moves: Vec<Move>,       // Highlight available moves
 }
 
 #[derive(Debug, Clone, Copy)]
 pub enum Message {
-    PieceSelected(usize, usize),
-    PieceMoved(usize, usize),
+    CellClicked(usize, usize),
+    AiMove,
+}
+
+#[derive(Debug)]
+struct BoardCanvas {
+    game: GameManager,
+    selected_piece: Option<Position>,
+    available_moves: Vec<Move>,
+}
+
+impl BoardCanvas {
+    fn new(game: &GameManager, selected: Option<Position>, available: &[Move]) -> Self {
+        Self {
+            game: game.clone(),
+            selected_piece: selected,
+            available_moves: available.to_vec(),
+        }
+    }
+}
+
+impl canvas::Program<Message> for BoardCanvas {
+    type State = ();
+
+    fn update(
+        &self,
+        _state: &mut Self::State,
+        event: canvas::Event,
+        bounds: Rectangle,
+        cursor: mouse::Cursor,
+    ) -> (event::Status, Option<Message>) {
+        if let canvas::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) = event {
+            let cell_size = bounds.width / 8.0;
+            let rel_pos = cursor.position().unwrap_or(Point::new(0.0, 0.0)) - bounds.position();
+            let col = (rel_pos.x / cell_size) as usize;
+            let row = (rel_pos.y / cell_size) as usize;
+            if row < 8 && col < 8 {
+                return (
+                    event::Status::Captured,
+                    Some(Message::CellClicked(row, col)),
+                );
+            }
+        }
+        (event::Status::Ignored, None)
+    }
+
+    fn draw(
+        &self,
+        _state: &Self::State,
+        renderer: &iced::Renderer,
+        _theme: &iced::Theme,
+        bounds: Rectangle,
+        _cursor: mouse::Cursor,
+    ) -> Vec<Geometry> {
+        let mut frame = Frame::new(renderer, bounds.size());
+        let cell_size = bounds.width / 8.0;
+
+        for row in 0..8 {
+            for col in 0..8 {
+                let x = col as f32 * cell_size;
+                let y = row as f32 * cell_size;
+                let cell_color = if (row + col) % 2 == 0 {
+                    Color::from_rgb(0.93, 0.93, 0.82)
+                } else {
+                    Color::from_rgb(0.46, 0.59, 0.34)
+                };
+                frame.fill_rectangle(
+                    Point::new(x, y),
+                    Size::new(cell_size, cell_size),
+                    cell_color,
+                );
+
+                if let Some(piece) = self.game.board.get_square(&Position { row, col }) {
+                    let center = Point::new(x + cell_size / 2.0, y + cell_size / 2.0);
+                    let radius = cell_size / 2.0 * 0.8;
+                    let bg_color = if piece.owner == Side::Player {
+                        Color::from_rgb(1.0, 0.0, 0.0)
+                    } else {
+                        Color::from_rgb(0.0, 0.0, 1.0)
+                    };
+                    frame.fill(&Path::circle(center, radius), bg_color);
+
+                    if piece.is_king {
+                        let text = Text {
+                            content: "K".to_string(),
+                            position: center,
+                            color: Color::WHITE,
+                            size: iced::Pixels(20.0),
+                            horizontal_alignment: iced::alignment::Horizontal::Center,
+                            vertical_alignment: iced::alignment::Vertical::Center,
+                            ..Default::default()
+                        };
+                        frame.fill_text(text);
+                    }
+                }
+
+                if self.selected_piece == Some(Position { row, col }) {
+                    let stroke = Stroke {
+                        style: canvas::Style::Solid(Color::from_rgb(1.0, 0.84, 0.0)),
+                        width: 3.0,
+                        ..Default::default()
+                    };
+                    frame.stroke(
+                        &Path::rectangle(Point::new(x, y), Size::new(cell_size, cell_size)),
+                        stroke,
+                    );
+                }
+
+                if self
+                    .available_moves
+                    .iter()
+                    .any(|m| m.to == Position { row, col })
+                {
+                    let dot_center = Point::new(x + cell_size / 2.0, y + cell_size / 2.0);
+                    frame.fill(
+                        &Path::circle(dot_center, 12.0),
+                        Color::from_rgb(0.0, 1.0, 0.0),
+                    );
+                }
+            }
+        }
+
+        vec![frame.into_geometry()]
+    }
 }
 
 impl CheckersUI {
-    fn update(&mut self, message: Message) {
+    fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::PieceSelected(row, col) => {
-                self.selected_piece = Some((row, col));
-                self.available_moves = self.calculate_available_moves(row, col);
+            Message::CellClicked(row, col) => {
+                // Don't allow clicking if it's AI's turn
+                if self.game.current_turn == Side::AI {
+                    return Task::none();
+                }
+
+                let pos = Position { row, col };
+                if self.selected_piece.is_some() {
+                    if let Some(mv) = self.available_moves.iter().find(|m| m.to == pos).cloned() {
+                        let _ = self.game.make_move(mv);
+                        self.selected_piece = None;
+                        self.available_moves.clear();
+
+                        // After player move, trigger AI move if it's AI's turn with delay
+                        if self.game.current_turn == Side::AI && !self.game.game_over {
+                            return Task::perform(
+                                async {
+                                    async_std::task::sleep(std::time::Duration::from_millis(800))
+                                        .await;
+                                },
+                                |_| Message::AiMove,
+                            );
+                        }
+                    } else {
+                        self.selected_piece = None;
+                        self.available_moves.clear();
+                    }
+                } else {
+                    if let Some(piece) = self.game.board.get_square(&pos) {
+                        if piece.owner == self.game.current_turn {
+                            self.selected_piece = Some(pos);
+                            self.available_moves = self.game.get_possible_moves(pos);
+                        }
+                    }
+                }
+                Task::none()
             }
-            Message::PieceMoved(_row, _col) => {
-                // Handle piece movement logic here
-                self.selected_piece = None;
-                self.available_moves.clear();
+            Message::AiMove => {
+                if self.game.current_turn == Side::AI && !self.game.game_over {
+                    let _ = self.game.make_ai_move();
+
+                    // If still AI's turn (multiple jumps), schedule another AI move with shorter delay
+                    if self.game.current_turn == Side::AI && !self.game.game_over {
+                        return Task::perform(
+                            async {
+                                async_std::task::sleep(std::time::Duration::from_millis(500)).await;
+                            },
+                            |_| Message::AiMove,
+                        );
+                    }
+                }
+                Task::none()
             }
         }
     }
 
     fn view(&self) -> Element<'_, Message> {
         let board = self.view_board();
-        let content = column![board].spacing(20).padding(20);
+        let status = if self.game.game_over {
+            text(format!(
+                "Game Over! Winner: {:?}",
+                self.game.winner.unwrap()
+            ))
+        } else {
+            text(format!("Current turn: {:?}", self.game.current_turn))
+        };
+        let content = column![board, status].spacing(20).padding(20);
 
         container(content)
             .width(Length::Fill)
@@ -57,79 +237,23 @@ impl CheckersUI {
 
 impl CheckersUI {
     fn view_board(&self) -> Element<'_, Message> {
-        let mut rows = column![];
-
-        for row in 0..8 {
-            let mut cells = row![];
-
-            for col in 0..8 {
-                let is_selected = self.selected_piece == Some((row, col));
-                let is_available = self.available_moves.contains(&(row, col));
-                let cell_color = if (row + col) % 2 == 0 {
-                    Color::from_rgb(0.93, 0.93, 0.82) // Light cell (beige)
-                } else {
-                    Color::from_rgb(0.46, 0.59, 0.34) // Dark cell (green)
-                };
-
-                let mut cell_container = container(text(""))
-                    .width(Length::Fixed(60.0))
-                    .height(Length::Fixed(60.0))
-                    .style(move |_theme| {
-                        container::Style {
-                            background: Some(cell_color.into()),
-                            border: iced::Border {
-                                color: if is_selected {
-                                    Color::from_rgb(1.0, 0.84, 0.0) // Gold border for selected
-                                } else {
-                                    Color::from_rgb(0.2, 0.2, 0.2)
-                                },
-                                width: if is_selected { 3.0 } else { 1.0 },
-                                radius: 0.0.into(),
-                            },
-                            ..Default::default()
-                        }
-                    });
-
-                // Add a visual indicator for available moves
-                if is_available {
-                    cell_container = container(
-                        container(text(""))
-                            .width(Length::Fixed(20.0))
-                            .height(Length::Fixed(20.0))
-                            .style(|_theme| container::Style {
-                                background: Some(Color::from_rgba(0.0, 0.5, 1.0, 0.6).into()),
-                                border: iced::Border {
-                                    radius: 10.0.into(),
-                                    ..Default::default()
-                                },
-                                ..Default::default()
-                            }),
-                    )
-                    .width(Length::Fixed(60.0))
-                    .height(Length::Fixed(60.0))
-                    .center_x(Length::Fill)
-                    .center_y(Length::Fill)
-                    .style(move |_theme| container::Style {
-                        background: Some(cell_color.into()),
-                        border: iced::Border {
-                            color: Color::from_rgb(0.2, 0.2, 0.2),
-                            width: 1.0,
-                            radius: 0.0.into(),
-                        },
-                        ..Default::default()
-                    });
-                }
-
-                cells = cells.push(cell_container);
-            }
-
-            rows = rows.push(cells);
-        }
-
-        rows.into()
+        Canvas::new(BoardCanvas::new(
+            &self.game,
+            self.selected_piece,
+            &self.available_moves,
+        ))
+        .width(Length::Fixed(480.0))
+        .height(Length::Fixed(480.0))
+        .into()
     }
+}
 
-    fn calculate_available_moves(&self, _row: usize, _col: usize) -> Vec<(usize, usize)> {
-        vec![(2, 3), (3, 4), (4, 5)]
+impl Default for CheckersUI {
+    fn default() -> Self {
+        CheckersUI {
+            game: GameManager::new(),
+            selected_piece: None,
+            available_moves: vec![],
+        }
     }
 }

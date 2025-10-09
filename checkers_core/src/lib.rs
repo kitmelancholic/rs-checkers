@@ -1,21 +1,27 @@
+pub mod ai;
 pub mod board;
 pub mod game_manager;
 pub mod move_controller;
-pub mod movement;
-pub mod piece;
 
 pub use board::{Board, BoardError};
 
-pub use piece::{Piece, PiecePosition, Side, calc_next_pos, is_valid_position};
+pub use game_manager::{GameError, GameManager};
 
-pub use movement::{Move, MoveDirection, MoveError, MoveHorizontal, MoveType, MoveVertical};
+pub use board::piece::PieceData;
+pub use board::piece::side::Side;
+pub use board::position::Position;
 
-pub use move_controller::{all_moves_per_piece, all_moves_per_side, check_move};
+pub use board::movement::direction::{MoveDirection, MoveHorizontal, MoveVertical};
+pub use board::movement::{Move, MoveError, MoveType};
+
+pub use move_controller::{check_move, moves_per_piece, moves_per_side};
+
+pub use ai::{decide_move, get_best_move};
 
 pub mod prelude {
     pub use crate::{
-        Board, BoardError, Move, MoveDirection, MoveError, MoveHorizontal, MoveType, MoveVertical,
-        Piece, PiecePosition, Side, all_moves_per_piece, all_moves_per_side, calc_next_pos,
-        check_move, is_valid_position,
+        Board, BoardError, GameError, GameManager, Move, MoveDirection, MoveError, MoveHorizontal,
+        MoveType, MoveVertical, PieceData, Position, Side, check_move, decide_move, get_best_move,
+        moves_per_piece, moves_per_side,
     };
 }

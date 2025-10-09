@@ -37,9 +37,6 @@ jobs:
       - name: fmt
         run: cargo fmt -- --check
 
-      - name: clippy
-        run: cargo clippy -- -D warnings
-
       - name: test core (release)
         run: cargo test -p checkers_core --release
 

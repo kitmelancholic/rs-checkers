@@ -1,22 +1,30 @@
 use crate::board::Board;
-use crate::movement::{Move, MoveDirection, MoveError, MoveHorizontal, MoveType, MoveVertical};
-use crate::piece::{Piece, Side, calc_next_pos, is_valid_position};
+use crate::board::movement::direction::{MoveDirection, MoveHorizontal, MoveVertical};
+use crate::board::movement::{Move, MoveType};
+use crate::board::piece::PieceInstance;
+use crate::board::piece::side::Side;
 
-pub fn all_moves_per_side(board: &Board, side: Side) -> Vec<Move> {
+pub fn moves_per_side(board: &Board, side: Side) -> Vec<Move> {
     let pieces = board.all_pieces_of_side(side);
     let mut moves: Vec<Move> = vec![];
 
     for piece in pieces {
-        moves.extend(all_moves_per_piece(board, piece));
+        moves.extend(all_moves_per_piece(board, &piece));
+    }
+
+    // Check if there are jumps: if yes, only allow jumps
+    let has_jumps = moves.iter().any(|m| m.move_type == MoveType::Jump);
+    if has_jumps {
+        moves.retain(|m| m.move_type == MoveType::Jump);
     }
 
     moves
 }
 
-pub fn all_moves_per_piece(board: &Board, piece: &Piece) -> Vec<Move> {
+fn all_ways_per_piece(piece: &PieceInstance) -> Vec<MoveDirection> {
     let mut ways: Vec<MoveDirection> = vec![];
 
-    if piece.is_king || piece.owner == Side::AI {
+    if piece.data.is_king || piece.data.owner == Side::AI {
         ways.push(MoveDirection {
             hor: (MoveHorizontal::Left),
             ver: (MoveVertical::Down),
@@ -26,7 +34,7 @@ pub fn all_moves_per_piece(board: &Board, piece: &Piece) -> Vec<Move> {
             ver: (MoveVertical::Down),
         });
     }
-    if piece.is_king || piece.owner == Side::Player {
+    if piece.data.is_king || piece.data.owner == Side::Player {
         ways.push(MoveDirection {
             hor: (MoveHorizontal::Left),
             ver: (MoveVertical::Up),
@@ -36,75 +44,82 @@ pub fn all_moves_per_piece(board: &Board, piece: &Piece) -> Vec<Move> {
             ver: (MoveVertical::Up),
         });
     }
+    ways
+}
+
+fn all_moves_per_piece(board: &Board, piece: &PieceInstance) -> Vec<Move> {
+    let ways = all_ways_per_piece(piece);
 
     let mut moves: Vec<Move> = vec![];
 
     for direction in ways {
-        if let Ok(correct_move) = check_move(board, piece, direction) {
+        if let Some(correct_move) = check_move(board, piece, direction) {
             moves.push(correct_move);
         }
     }
     moves
 }
 
-pub fn check_move(board: &Board, piece: &Piece, move_to: MoveDirection) -> Result<Move, MoveError> {
-    let from_row = piece.position.row as isize;
-    let from_col = piece.position.col as isize;
+pub fn moves_per_piece(board: &Board, piece: &PieceInstance) -> Vec<Move> {
+    let all_side_moves = moves_per_side(board, piece.data.owner);
+    all_side_moves
+        .into_iter()
+        .filter(|m| m.from == piece.position)
+        .collect()
+}
 
-    if !is_valid_position(from_row, from_col) {
-        return Err(MoveError::IncorrectPosition);
-    } else if !piece.is_king
+pub fn check_move(board: &Board, piece: &PieceInstance, move_to: MoveDirection) -> Option<Move> {
+    //correct dirrection?
+    if !piece.data.is_king
         && match move_to.ver {
-            MoveVertical::Up => piece.owner != Side::Player,
-            MoveVertical::Down => piece.owner != Side::AI,
+            MoveVertical::Up => piece.data.owner != Side::Player,
+            MoveVertical::Down => piece.data.owner != Side::AI,
         }
     {
-        return Err(MoveError::WrongDirection);
-    } else {
-        match calc_next_pos(&piece.position, &move_to) {
-            Ok(next_pos) => match board.is_empty(next_pos.row, next_pos.col) {
-                Ok(true) => {
-                    return Ok(Move {
-                        from: piece.position,
-                        to: next_pos,
-                        move_type: MoveType::Simple,
-                    });
-                }
-                Ok(false) => match calc_next_pos(&next_pos, &move_to) {
-                    Ok(jump_pos) => match board.is_empty(jump_pos.row, jump_pos.col) {
-                        Ok(true) => {
-                            return Ok(Move {
-                                from: piece.position,
-                                to: jump_pos,
-                                move_type: MoveType::Jump,
-                            });
-                        }
-                        Ok(false) => {
-                            return Err(MoveError::NoMove);
-                        }
-                        Err(_) => panic!(),
-                    },
-                    Err(MoveError::IllegalMove) => {
-                        return Err(MoveError::NoMove);
-                    }
-                    Err(_) => panic!(),
-                },
-                Err(_) => panic!(),
-            },
-            Err(MoveError::IllegalMove) => {
-                return Err(MoveError::IllegalMove);
-            }
-            _ => panic!(),
-        }
+        return None;
     }
 
-    // is there piece? +
-    // |-yes, and it in the border?
-    // | |-yes -> NoMove
-    // | |-no, is it ours?
-    // | | |-yes, NoMove
-    // | | |-no, is there place behind it?
-    // | | | |-yes -> Jump
-    // | | | |-no -> NoMove.
-    // |-no -> SimpleMove +
+    //correct move_to_position?
+    match piece.position.setup_moved(&move_to, 1) {
+        Ok(moved_pos) => {
+            //is there alive piece?
+            match board.get_square(&moved_pos) {
+                Some(moved_pos_piece) => {
+                    //is it in black list?
+
+                    //mine?
+                    if moved_pos_piece.owner == piece.data.owner {
+                        return None;
+                    } else {
+                        //is there place behind it?
+                        match piece.position.setup_moved(&move_to, 2) {
+                            Ok(jump_pos) => {
+                                //is there piece?
+                                match board.get_square(&jump_pos) {
+                                    Some(_) => return None,
+                                    None => {
+                                        //make_jump
+                                        return Some(Move {
+                                            from: piece.position,
+                                            to: jump_pos,
+                                            move_type: MoveType::Jump,
+                                        });
+                                    }
+                                }
+                            }
+                            Err(_) => return None,
+                        }
+                    }
+                }
+                None => {
+                    return Some(Move {
+                        from: piece.position,
+                        to: moved_pos,
+                        move_type: MoveType::Move,
+                    });
+                }
+            }
+        }
+        Err(_) => return None,
+    };
 }
