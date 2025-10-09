@@ -1,14 +1,21 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+pub mod board;
+pub mod game_manager;
+pub mod move_controller;
+pub mod movement;
+pub mod piece;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub use board::{Board, BoardError};
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
+pub use piece::{Piece, PiecePosition, Side, calc_next_pos, is_valid_position};
+
+pub use movement::{Move, MoveDirection, MoveError, MoveHorizontal, MoveType, MoveVertical};
+
+pub use move_controller::{all_moves_per_piece, all_moves_per_side, check_move};
+
+pub mod prelude {
+    pub use crate::{
+        Board, BoardError, Move, MoveDirection, MoveError, MoveHorizontal, MoveType, MoveVertical,
+        Piece, PiecePosition, Side, all_moves_per_piece, all_moves_per_side, calc_next_pos,
+        check_move, is_valid_position,
+    };
 }
