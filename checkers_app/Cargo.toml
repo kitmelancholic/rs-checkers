@@ -6,8 +6,4 @@ edition = "2024"
 [dependencies]
 checkers_core = { path = "../checkers_core" }
 
-eframe = { workspace = true }
-egui = { workspace = true }
-egui_dnd = { workspace = true }
-egui_extras = { workspace = true, features = ["all_loaders"] }
-image = { workspace = true }
+iced = "0.13.1"
